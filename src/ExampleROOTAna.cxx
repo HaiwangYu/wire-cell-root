@@ -18,20 +18,12 @@ WIRECELL_FACTORY(ExampleROOTAna, WireCell::Root::ExampleROOTAna,
 
 using namespace WireCell;
 
-Root::ExampleROOTAna::ExampleROOTAna()
-    : m_nrebin(1), log(Log::logger("ana")) {}
+Root::ExampleROOTAna::ExampleROOTAna() : log(Log::logger("ana")) {}
 
 Root::ExampleROOTAna::~ExampleROOTAna() {}
 
 void Root::ExampleROOTAna::configure(const WireCell::Configuration &cfg) {
   std::string fn;
-
-  fn = cfg["input_filename"].asString();
-  if (fn.empty() and !cfg["shunt"].empty()) {
-    log->error("ExampleROOTAna: asked to shunt but not given input file name");
-    THROW(ValueError() << errmsg{"ExampleROOTAna: must provide input filename "
-                                 "to shunt objects to output"});
-  }
 
   fn = cfg["output_filename"].asString();
   if (fn.empty()) {
@@ -44,9 +36,7 @@ void Root::ExampleROOTAna::configure(const WireCell::Configuration &cfg) {
 
   m_cfg = cfg;
 
-  m_nrebin = get<int>(cfg, "nrebin", m_nrebin);
-
-  create_file();
+  recreate_out_file();
 }
 
 WireCell::Configuration Root::ExampleROOTAna::default_configuration() const {
@@ -54,66 +44,15 @@ WireCell::Configuration Root::ExampleROOTAna::default_configuration() const {
 
   cfg["anode"] = "AnodePlane";
 
-  // fixme: this TOTALLY violates the design of wire cell DFP.
-  cfg["input_filename"] = "";
-
-  // List of TObjects to copy from input file to output file.
-  cfg["shunt"] = Json::arrayValue;
-
   // Name of ROOT file to write.
   cfg["output_filename"] = "";
 
-  // A list of trace tags defining which waveforms are saved to Magnify
-  // histograms.
-  cfg["frames"] = Json::arrayValue;
-
-  // If no tags for traces, i.e. trace_has_tag=false in a frame,
-  // set desired tag to ""
-  // as FrameTool::tagged_traces(frame, "") calls untagged_traces(frame).
-  cfg["trace_has_tag"] = true;
-
-  // A list of pairs mapping a cmm key name to a ttree name.
-  cfg["cmmtree"] = Json::arrayValue;
-
-  // The ROOT file mode with which to open the file.  Use "RECREATE"
-  // to overrite an existing file.  This might be useful for the
-  // first ExampleROOTAna in a chain.  Use "UPDATE" for subsequent
-  // sinks that add to the file.
-  cfg["root_file_mode"] = "RECREATE";
-
-  // If runinfo is given it should be a JSON object and its values
-  // will be copied into the Trun tree.  If instead it is null AND
-  // an input file is given AND it contains a Trun tree, it will be
-  // copied to output.
-  cfg["runinfo"] = Json::nullValue;
-
   cfg["nrebin"] = 1;
-
-  // List tagged traces from which to save the "trace summary"
-  // vector into a 1D histogram which will be named after the tag.
-  // See "summary_operator".
-  cfg["summaries"] = Json::arrayValue;
-
-  // An object mapping tags to operators for aggregating trace
-  // summary values on the same channel.  Operator may be "sum" to
-  // add up all values on the same channel or "set" to assign values
-  // to the channel bin (last one wins).  If a tag is not found, the
-  // default operator is "sum".
-  cfg["summary_operator"] = Json::objectValue;
 
   return cfg;
 }
 
 namespace {
-typedef std::unordered_set<std::string> string_set_t;
-string_set_t getset(const WireCell::Configuration &cfg) {
-  string_set_t ret;
-  for (auto jone : cfg) {
-    ret.insert(jone.asString());
-  }
-  return ret;
-}
-
 std::vector<WireCell::Binning> collate_byplane(const ITrace::vector &traces,
                                                const IAnodePlane::pointer anode,
                                                ITrace::vector byplane[]) {
@@ -157,9 +96,9 @@ std::vector<WireCell::Binning> collate_byplane(const ITrace::vector &traces,
   }
   return binnings;
 }
-}
+} // namespace
 
-void Root::ExampleROOTAna::create_file() {
+void Root::ExampleROOTAna::recreate_out_file() const {
   const std::string ofname = m_cfg["output_filename"].asString();
   const std::string mode = "RECREATE";
   TFile *output_tf = TFile::Open(ofname.c_str(), mode.c_str());
@@ -168,37 +107,26 @@ void Root::ExampleROOTAna::create_file() {
   output_tf = nullptr;
 }
 
-bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
-  
-  if (!frame) {
-    // eos
-    log->debug("ExampleROOTAna: EOS");
-    return true;
-  }
-  if (frame->traces()->empty()) {
-    log->debug("ExampleROOTAna: passing through empty frame ID {}",
-               frame->ident());
-    return true;
+void Root::ExampleROOTAna::peak_frame(const IFrame::pointer &frame) const {
+
+  std::string frame_tags = "";
+  for (auto tag : frame->frame_tags()) {
+    frame_tags += " ";
+    frame_tags += tag;
   }
 
-  const std::string ofname = m_cfg["output_filename"].asString();
-  const std::string mode = m_cfg["root_file_mode"].asString();
-  log->debug("ExampleROOTAna: opening for output: {} with mode {}", ofname,
-             mode);
-  TFile *output_tf = TFile::Open(ofname.c_str(), mode.c_str());
+  for (auto tag : frame->trace_tags()) {
+    log->info(
+        "ExampleROOTAna: trace tag: \"{}\" in frame: tags \"{}\" - ident: {}",
+        tag, frame_tags, frame->ident());
+  }
+}
 
-  for (auto tag : getset(m_cfg["frames"])) {
+void Root::ExampleROOTAna::fill_hist(const IFrame::pointer &frame,
+                                     TFile *output_tf) const {
 
-    auto trace_tag = tag;
-    auto trace_has_tag = m_cfg["trace_has_tag"].asBool();
-    if (!trace_has_tag) {
-      trace_tag = "";
-      log->debug("ExampleROOTAna: set desired trace tag to \"\" as "
-                 "cfg::trace_has_tag=false");
-    }
-
-    ITrace::vector traces_byplane[3],
-        traces = FrameTools::tagged_traces(frame, trace_tag);
+  for (auto tag : frame->trace_tags()) {
+    ITrace::vector traces = FrameTools::tagged_traces(frame, tag);
     if (traces.empty()) {
       log->warn("ExampleROOTAna: no tagged traces for \"{}\"", tag);
       continue;
@@ -207,6 +135,7 @@ bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
     log->debug("ExampleROOTAna: tag: \"{}\" with {} traces", tag,
                traces.size());
 
+    ITrace::vector traces_byplane[3];
     auto binnings = collate_byplane(traces, m_anode, traces_byplane);
     Binning tbin = binnings[3];
     for (int iplane = 0; iplane < 3; ++iplane) {
@@ -223,7 +152,7 @@ bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
       log->debug(ss.str());
 
       // consider to add nrebin ...
-      int nbins = tbin.nbins() / m_nrebin;
+      int nbins = tbin.nbins();
 
       TH2F *hist =
           new TH2F(name.c_str(), name.c_str(), cbin.nbins(), cbin.min(),
@@ -237,7 +166,7 @@ bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
         auto const &charges = trace->charge();
         for (size_t itick = 0; itick < charges.size(); ++itick) {
 
-          int ibin = (tbin1 - tbin.min() + itick) / m_nrebin;
+          int ibin = (tbin1 - tbin.min() + itick);
 
           hist->SetBinContent(
               cbin.bin(ch) + 1, ibin + 1,
@@ -246,7 +175,33 @@ bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
       }
     }
   }
+}
 
+bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
+
+  if (!frame) {
+    // eos
+    log->debug("ExampleROOTAna: EOS");
+    return true;
+  }
+  if (frame->traces()->empty()) {
+    log->debug("ExampleROOTAna: passing through empty frame ID {}",
+               frame->ident());
+    return true;
+  }
+
+  /// open output file
+  const std::string ofname = m_cfg["output_filename"].asString();
+  const std::string mode = "UPDATE";
+  log->debug("ExampleROOTAna: opening for output: {} with mode {}", ofname,
+             mode);
+  TFile *output_tf = TFile::Open(ofname.c_str(), mode.c_str());
+
+  peak_frame(frame);
+
+  fill_hist(frame, output_tf);
+
+  /// write and close output file
   auto count = output_tf->Write();
   log->debug("ExampleROOTAna: closing output file {}, wrote {} bytes", ofname,
              count);

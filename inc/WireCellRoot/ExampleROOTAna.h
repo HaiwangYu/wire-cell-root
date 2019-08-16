@@ -18,6 +18,7 @@
 #include "WireCellUtil/Logging.h"
 
 class TFile;
+class TTree;
 
 namespace WireCell {
 namespace Root {
@@ -38,8 +39,14 @@ private:
   Configuration m_cfg;
   IAnodePlane::pointer m_anode;
 
-  int m_nrebin;
-  void create_file();
+  /// recreate output file
+  void recreate_out_file() const;
+
+  /// print trace tags and frame tags
+  void peak_frame(const IFrame::pointer &frame) const;
+
+  /// fill time-channel 2D hist for each trace tag
+  void fill_hist(const IFrame::pointer &frame, TFile *output_tf) const;
 
   Log::logptr_t log;
 };
