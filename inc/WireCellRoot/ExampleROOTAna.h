@@ -15,6 +15,7 @@
 #include "WireCellIface/IAnodePlane.h"
 #include "WireCellIface/IConfigurable.h"
 #include "WireCellIface/IFrameSink.h"
+#include "WireCellIface/IFrameFilter.h"
 #include "WireCellUtil/Logging.h"
 
 class TFile;
@@ -22,14 +23,14 @@ class TFile;
 namespace WireCell {
 namespace Root {
 
-class ExampleROOTAna : public IFrameSink, public IConfigurable {
+class ExampleROOTAna : public IFrameFilter, public IConfigurable {
 public:
   ExampleROOTAna();
   virtual ~ExampleROOTAna();
 
   /// working operation - interface from IFrameFilter
   /// executed when called by pgrapher
-  virtual bool operator()(const IFrame::pointer &in);
+  virtual bool operator()(const IFrame::pointer &in, IFrame::pointer& out);
 
   /// interfaces from IConfigurable
 
@@ -51,6 +52,9 @@ private:
 
   /// fill time-channel 2D hist for each trace tag
   void fill_hist(const IFrame::pointer &frame, TFile *output_tf) const;
+
+  /// fill time-channel 2D hist for each trace tag
+  IFrame::pointer fft_frame(const IFrame::pointer &in) const;
 
   /// SPD logger
   Log::logptr_t log;

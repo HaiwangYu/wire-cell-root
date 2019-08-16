@@ -1,5 +1,7 @@
 #include "WireCellRoot/ExampleROOTAna.h"
 #include "WireCellIface/ITrace.h"
+#include "WireCellIface/SimpleFrame.h"
+#include "WireCellIface/SimpleTrace.h"
 
 #include "TFile.h"
 #include "TH1F.h"
@@ -57,8 +59,8 @@ WireCell::Configuration Root::ExampleROOTAna::default_configuration() const {
 }
 
 namespace {
-/// categorize traces to plane (u, v, w) via channel ID - plane ID relation storaged in APA
-/// figure out time and channel binning for each plane
+/// categorize traces to plane (u, v, w) via channel ID - plane ID relation
+/// storaged in APA figure out time and channel binning for each plane
 std::vector<WireCell::Binning> collate_byplane(const ITrace::vector &traces,
                                                const IAnodePlane::pointer anode,
                                                ITrace::vector byplane[]) {
@@ -183,7 +185,41 @@ void Root::ExampleROOTAna::fill_hist(const IFrame::pointer &frame,
   }
 }
 
-bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
+IFrame::pointer
+Root::ExampleROOTAna::fft_frame(const IFrame::pointer &in) const {
+  WireCell::IFrame::trace_list_t indices;
+
+  ITrace::vector *itraces = new ITrace::vector;
+
+  for (auto trace : *(in->traces()).get()) {
+    auto wf = trace->charge();
+    auto wf_fft = WireCell::Waveform::magnitude(WireCell::Waveform::dft(wf));
+
+    auto chid = trace->channel();
+    auto tbin = trace->tbin();
+
+    WireCell::SimpleTrace *trace_fft =
+        new WireCell::SimpleTrace(chid, tbin, wf_fft);
+    const size_t trace_index = itraces->size();
+    indices.push_back(trace_index);
+    itraces->push_back(ITrace::pointer(trace_fft));
+  }
+
+  SimpleFrame *sframe =
+      new SimpleFrame(in->ident(), in->time(), ITrace::shared_vector(itraces),
+                      in->tick(), in->masks());
+
+  sframe->tag_frame("ana");
+
+  sframe->tag_traces("ana_fft", indices);
+
+  return IFrame::pointer(sframe);
+}
+
+bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame,
+                                      IFrame::pointer &out) {
+
+  out = frame;
 
   if (!frame) {
     // eos
@@ -206,6 +242,9 @@ bool Root::ExampleROOTAna::operator()(const IFrame::pointer &frame) {
   peak_frame(frame);
 
   fill_hist(frame, output_tf);
+
+  auto frame_fft = fft_frame(frame);
+  fill_hist(frame_fft, output_tf);
 
   /// write and close output file
   auto count = output_tf->Write();
