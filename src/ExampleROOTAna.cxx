@@ -13,6 +13,10 @@
 #include <string>
 #include <vector>
 
+/// macro to register name - concrete pair in the NamedFactory
+/// @param NAME - used to configure node in JSON/Jsonnet
+/// @parame CONCRETE - C++ concrete type
+/// @parame ... - interfaces
 WIRECELL_FACTORY(ExampleROOTAna, WireCell::Root::ExampleROOTAna,
                  WireCell::IFrameSink, WireCell::IConfigurable)
 
@@ -53,6 +57,8 @@ WireCell::Configuration Root::ExampleROOTAna::default_configuration() const {
 }
 
 namespace {
+/// categorize traces to plane (u, v, w) via channel ID - plane ID relation storaged in APA
+/// figure out time and channel binning for each plane
 std::vector<WireCell::Binning> collate_byplane(const ITrace::vector &traces,
                                                const IAnodePlane::pointer anode,
                                                ITrace::vector byplane[]) {

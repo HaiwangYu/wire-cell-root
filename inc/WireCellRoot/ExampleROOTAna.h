@@ -18,7 +18,6 @@
 #include "WireCellUtil/Logging.h"
 
 class TFile;
-class TTree;
 
 namespace WireCell {
 namespace Root {
@@ -28,16 +27,21 @@ public:
   ExampleROOTAna();
   virtual ~ExampleROOTAna();
 
-  /// IFrameFilter
+  /// working operation - interface from IFrameFilter
+  /// executed when called by pgrapher
   virtual bool operator()(const IFrame::pointer &in);
 
-  /// IConfigurable
+  /// interfaces from IConfigurable
+
+  /// exeexecuted once at node creation
   virtual WireCell::Configuration default_configuration() const;
+
+  /// executed once after node creation
   virtual void configure(const WireCell::Configuration &config);
 
 private:
-  Configuration m_cfg;
-  IAnodePlane::pointer m_anode;
+  Configuration m_cfg; /// copy of configuration
+  IAnodePlane::pointer m_anode; /// pointer to some APA, needed to associate chnnel ID to planes
 
   /// recreate output file
   void recreate_out_file() const;
@@ -48,6 +52,7 @@ private:
   /// fill time-channel 2D hist for each trace tag
   void fill_hist(const IFrame::pointer &frame, TFile *output_tf) const;
 
+  /// SPD logger
   Log::logptr_t log;
 };
 } // namespace Root
